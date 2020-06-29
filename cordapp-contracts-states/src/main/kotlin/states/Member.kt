@@ -12,6 +12,7 @@ import schemas.MemberSchemaV1
 data class Member(
         val creator: Party,
         val viewer: Party,
+        val observer: Party?,
         val title: String?,
         val firstName: String?,
         val lastName: String?,
@@ -24,6 +25,7 @@ data class Member(
                     linearId = this.linearId.id.toString(),
                     creator = this.creator.name.toString(),
                     viewer = this.viewer.name.toString(),
+                    observer = this.observer?.name.toString(),
                     title = this.title,
                     firstName = this.firstName,
                     lastName = this.lastName
@@ -32,6 +34,6 @@ data class Member(
         }
     }
 
-    override val participants: List<AbstractParty> = listOf(creator, viewer)
+    override val participants: List<AbstractParty> = listOfNotNull(creator, viewer, observer)
 
 }

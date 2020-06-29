@@ -3,18 +3,21 @@ package flows
 import co.paralleluniverse.fibers.Suspendable
 import contracts.MemberContract
 import models.MemberModel
-import net.corda.core.contracts.StateAndContract
-import net.corda.core.contracts.requireThat
+import net.corda.core.contracts.*
 import net.corda.core.flows.*
 import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
+import net.corda.core.node.services.Vault
+import net.corda.core.node.services.queryBy
+import net.corda.core.node.services.vault.PageSpecification
+import net.corda.core.node.services.vault.QueryCriteria
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import states.Member
 
-object CreateMember {
+object EditMember {
 
     @InitiatingFlow
     @StartableByRPC
@@ -43,25 +46,28 @@ object CreateMember {
         @Suspendable
         override fun call() : SignedTransaction {
             // Flow implementation goes here
-            logger.info("CreateMember.memberModel: $memberModel")
+            logger.info("EditMember id: ${memberModel.linearId}, memberModel: $memberModel")
             // Step 1. Verify first
             inspect()
 
             // Step 2. Initialisation. Initiated by creator
             progressTracker.currentStep = INITIALISING
-            val member = createMember(memberModel)
+            val memberIn = queryByLinear(memberModel.linearId!!)
+            val member = editMember(memberIn.state.data, memberModel)
 
             val ourSigningKey = member.creator.owningKey
 
             // Step 3. Building.
-            val participants = listOfNotNull(member.creator, member.viewer, member.observer)
+            // Just creator and viewer sign
+            val participants = listOf(member.creator, member.viewer)
             val listKey = participants.map { it.owningKey }
             progressTracker.currentStep = BUILDING
             val utx = TransactionBuilder(firstNotary)
                     // outputs
+                    .withItems(memberIn)
                     .withItems(StateAndContract(member, MemberContract.MEMBER_CONTRACT_ID))
 
-            utx.addCommand(MemberContract.Commands.Issue(), listKey)
+            utx.addCommand(MemberContract.Commands.Edit(), listKey)
 
             // Step 4. Sign the transaction.
             progressTracker.currentStep = SIGNING
@@ -85,7 +91,18 @@ object CreateMember {
             return subFlow(FinalityFlow(stx, FINALISING.childProgressTracker()))
         }
 
-        private fun createMember(memberModel: MemberModel): Member {
+        private fun queryByLinear(linearId: String): StateAndRef<Member> {
+            val queryCriteria = QueryCriteria.LinearStateQueryCriteria(
+                    null,
+                    listOf(UniqueIdentifier.fromString(linearId)),
+                    Vault.StateStatus.UNCONSUMED, null)
+
+            return serviceHub.vaultService.queryBy<Member>(
+                    queryCriteria,
+                    paging = PageSpecification(pageSize = 1, pageNumber = 1)).states.single()
+        }
+
+        private fun editMember(existing: Member, memberModel: MemberModel): Member {
 
             // Step 1. Query identity service for viewer based on X500Name
             val viewer = serviceHub.identityService.wellKnownPartyFromX500Name(CordaX500Name.parse(memberModel.viewer!!))!!
@@ -93,8 +110,7 @@ object CreateMember {
                 serviceHub.identityService.wellKnownPartyFromX500Name(CordaX500Name.parse(it))
             }
 
-            return Member(
-                    creator = ourIdentity,
+            return existing.copy(
                     viewer = viewer,
                     observer = observer,
                     title = memberModel.title,
@@ -105,6 +121,7 @@ object CreateMember {
 
         private fun inspect() {
             requireThat {
+                "Id cannot be null" using (memberModel.linearId.isNullOrEmpty().not())
                 "The title cannot be empty" using (memberModel.title.isNullOrEmpty().not())
                 "The first name cannot be empty" using (memberModel.firstName.isNullOrEmpty().not())
                 "The last name cannot be empty" using (memberModel.lastName.isNullOrEmpty().not())
@@ -112,7 +129,7 @@ object CreateMember {
         }
     }
 
-    @InitiatedBy(CreateMember.Initiator::class)
+    @InitiatedBy(EditMember.Initiator::class)
     class Responder(val counterpartySession: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
         override fun call(): SignedTransaction {
@@ -132,8 +149,8 @@ object CreateMember {
         }
 
         /**
-        * A function to resolve abstract party to known party
-        */
+         * A function to resolve abstract party to known party
+         */
         @Suspendable
         protected fun resolveIdentity(abstractParty: AbstractParty): Party? {
             return serviceHub.identityService.wellKnownPartyFromAnonymous(abstractParty)

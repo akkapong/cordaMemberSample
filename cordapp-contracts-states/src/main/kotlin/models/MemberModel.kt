@@ -8,8 +8,10 @@ import net.corda.core.serialization.CordaSerializable
 @CordaSerializable
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class MemberModel(
+        val linearId: String?= null,
         val creator: String?= null,
         val viewer: String?= null,
+        val observer: String?= null,
         val title: String? = null,
         val firstName: String? = null,
         val lastName: String? = null)

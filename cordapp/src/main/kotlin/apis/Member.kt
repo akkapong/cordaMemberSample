@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonInclude
 import contracts.MemberContract.Companion.logger
 import flows.CreateMember
+import flows.EditMember
 import models.MemberModel
 import net.corda.core.internal.rootCause
 import net.corda.core.messaging.CordaRPCOps
@@ -96,6 +97,35 @@ class MemberApi(val services: CordaRPCOps) {
         val (responseStatus, responseMessage) = try {
             val flowHandle = services.startTrackedFlowDynamic(CreateMember.Initiator::class.java, member)
             flowHandle.progress.subscribe({ logger.info("MemberApi.postMember: $member") })
+            val stx = flowHandle.use { it.returnValue.getOrThrow() }
+
+            // Create a invoice model pertaining to all information of the states created
+            val output = stx.tx.outputsOfType<Member>()
+
+            val http = HttpStatus.CREATED_201
+            http to output
+
+        } catch (ex: Exception) {
+            logger.error("Exception during invoice: ", ex)
+            val error = ex.message ?: ex.rootCause.toString()
+            val http = HttpStatus.INTERNAL_SERVER_ERROR_500
+            http to error
+        }
+
+        return Response.status(responseStatus).entity(responseMessage).build()
+    }
+
+    // Accessible at /member.
+    @PUT
+    @Produces(MediaType.APPLICATION_JSON)
+    fun putMember(member: MemberModel): Response {
+
+        logger.info("MemberApi.putMember POST members/ : $member ")
+
+        // since we can do a bulk creation atomically, we have to do one by one invoice.
+        val (responseStatus, responseMessage) = try {
+            val flowHandle = services.startTrackedFlowDynamic(EditMember.Initiator::class.java, member)
+            flowHandle.progress.subscribe({ logger.info("MemberApi.putMember: $member") })
             val stx = flowHandle.use { it.returnValue.getOrThrow() }
 
             // Create a invoice model pertaining to all information of the states created

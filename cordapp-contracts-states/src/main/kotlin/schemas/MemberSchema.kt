@@ -27,6 +27,9 @@ object MemberSchemaV1 : MappedSchema(schemaFamily = MemberSchema.javaClass,
             @Column(name = "viewer")
             var viewer: String? = null,
 
+            @Column(name = "observer")
+            var observer: String? = null,
+
             @Column(name = "title")
             var title: String? = null,
 
